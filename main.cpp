@@ -3,6 +3,8 @@
 #include <vector>
 #include <algorithm>
 #include <initializer_list>
+#include <memory>
+#include <sstream>
 
 class BotSpeakControllerInterface {
 	///
@@ -15,12 +17,19 @@ class BotSpeakStdoutController : public BotSpeakControllerInterface {
 public:
 	virtual void speak(const std::string &s) override
 	{
-		std::cout << s;
+		std::cout << s << std::endl;
 	}
 	virtual void getCommand(std::string &s) override
 	{
 		getline(std::cin, s);
 	}	
+};
+
+class BotCommandInterface {
+public:
+	virtual void command(const std::string &name) = 0;	
+	virtual const std::string &getDescription() = 0;
+	virtual void getCommand() = 0;
 };
 
 // expression ::=  <literal> | <command> 
@@ -30,176 +39,300 @@ public:
 //
 class AbstractExpression {
 public:
-	virtual bool parse(const std::string &tok) = 0;
-	virtual bool action() = 0;
-};
-
-class CommandList : public AbstractExpression {
-	std::vector<AbstractExpression *> commands;
-
-protected:
-
-	enum hook_return_value {
-		hook_ret_false,
-		hook_ret_true,
-		hook_continue_iteration,
-	};
-
-	hook_return_value doDefaultAction(AbstractExpression &cmd)
-	{
-		if (cmd.action()) {
-			return hook_ret_true;
-		}
-		return hook_continue_iteration;
-	}
-	
-	hook_return_value doDefaultParse(AbstractExpression &cmd,
-		       	const std::string &tok)
-	{
-		if (cmd.parse(tok)) {
-			return hook_ret_true;
-		}
-		return hook_continue_iteration;
-	}
-	
-	virtual hook_return_value doParse(AbstractExpression &cmd,
-		       	const std::string &tok)
-	{
-		return doDefaultParse(cmd, tok);
-	}
-	
-	/// @brief Synonym for doParse(). Added for overloading 
-	/// in template helper method.
-	/// @see doParse()
-	hook_return_value doAction(AbstractExpression &cmd,
-		const std::string &tok)
-	{
-		return doParse(cmd, tok);
-	}
-
-	virtual hook_return_value doAction(AbstractExpression &cmd)
-	{
-		return doDefaultAction(cmd);
-	}
-
-	template <typename... Args> bool doTemplateAction(Args &&...args)
-	{
-		for (auto cmd : commands) {
-			hook_return_value ret = doAction(*cmd, args...);
-			
-			if (ret == hook_continue_iteration) {
-				continue;
-			} else {
-				return (bool) ret;
-			}
-		}
-		return false;
-	}
-
-public:
-	CommandList(std::initializer_list<AbstractExpression*> &il)
-	{
-		commands.resize(il.size());
-		std::copy(il.begin(), il.end(), commands.begin());
-	}
-
-	virtual bool parse(const std::string &tok) override
-	{
-		for (auto cmd : commands) {
-			hook_return_value ret = doAction(*cmd, tok);
-			
-			if (ret == hook_continue_iteration) {
-				continue;
-			} else {
-				return (bool) ret;
-			}
-		}
-		return false;
-	}
-
-	virtual bool action() override
-	{
-		/*for (auto cmd : commands) {
-			if(cmd->action()) {
-				return true;
-			}
-		}
-		return false;*/
-		return doTemplateAction();
-	}
-};
-
-class Command;
-class LiteralCommand;
-
-class ExpressionCommand : public AbstractExpression {
-	CommandList cmds;
-	CommandList liters;
-public:
-	void addCommand();
-	virtual bool parse(const std::string &tok) override
-	{
-		if (cmds.parse(tok)) {
-			return true;
-		} else {
-			return liters.parse(tok);
-		}
-	}
+	virtual bool parse(const std::string &tok,
+			BotCommandInterface *iface) = 0;
 };
 
 class LiteralCommand : public AbstractExpression {
-	std::string literal;
 public:
-	LiteralCommand(const std::string &s)
-		: literal(s) {}
-
-	bool parse(const std::string &s) override
+	bool parse(const std::string &s,
+		BotCommandInterface *iface) override
 	{
 		return true; //s.compare(literal, literal.size();
 	}
 };
 
-class BotCommand : public AbstractExpression {
-	// Command cmd;
-	// const std::
-};
-
 class Command : public AbstractExpression {
-	CommandList opts;
-	bool optional;
 public:
-	bool parse(const std::string &tok) override
+	bool parse(const std::string &tok,
+		BotCommandInterface *iface) override
 	{
 		if (tok[0] == '/') {
 			// todo: cmd literals
+			iface->command(tok.substr(1));
 			return true;
 		}
 		return false;
 	}
 };
 
-class AddBookCommand {
+class ExpressionCommand : public AbstractExpression {
+	Command cmd;
+	LiteralCommand liter;
+public:
+	virtual bool parse(const std::string &tok,
+		BotCommandInterface *iface) override
+	{
+		if (cmd.parse(tok, iface)) {
+			return true;
+		} else {
+			return liter.parse(tok, iface);
+		}
+	}
 };
 
 const char *COMMAND_ADDBOOK = "/addbook";
 
-class BotContext {
-	BotSpeakControllerInterface *ctrl;
-	BotExpressionList commands;
+class BotCommand {
+	BotCommandInterface *iface;
+	std::string name;
 public:
-	BotContext(BotSpeakControllerInterface &iface)
+	BotCommand(BotCommandInterface *iface, const std::string &nam)
 	{
-		ctrl = &iface;
+		this->name = nam;
+		this->iface = iface;
 	}
 
+
+};
+
+// bot states
+// waitcmd <->waitname<->waitlang
+//   ^ v
+// waitlangvoid
+class BotContext : public BotCommandInterface {
+	BotSpeakControllerInterface *ctrl;
+	ExpressionCommand parser;
+	std::string description;
+	bool requestExit;
+
+public:
+	struct BookEntry {
+		std::string name;
+		std::string desc;
+	};
+private:
+	std::vector<BookEntry> books;
+	
+	bool addBook(const BookEntry &entry)
+	{
+		books.push_back(entry);
+		return true;
+	}
+
+	size_t listBooks()
+	{
+		size_t count = 1;
+		std::stringstream ss;
+		ss << "All books list: " << std::endl;
+		for (auto &e : books) {
+			ss << count << ". " << e.name << ", description: " << e.desc << std::endl;
+		}
+		ss << "Total count: " << count;
+		ctrl->speak(ss.str());
+		return count;
+	}
+	
+	void exit()
+	{
+		requestExit = true;
+	}
+
+	class BotCommand {
+	public:
+		virtual void processInput(const std::string &s) = 0;
+	};
+	
+	/// @brief Incapsulates all command switch states.
+	class BotStateManager {
+		BotCommand *cur;
+		BotContext *ctx;
+		std::shared_ptr<BotCommand> states[4];
+	public:
+		class BotConcreteCommand : BotCommand {
+			std::string name;
+		};
+		
+		class BotUndefinedState : public BotCommand {
+			BotStateManager *mgr; 
+		public:
+			BotUndefinedState(BotStateManager *mgr)
+			{
+				this->mgr = mgr;
+			}
+
+			void processInput(const std::string &s) {
+				if (s.compare("start") != 0) {
+					return;
+				}
+				mgr->setState(BotStateManager::Ready);
+				mgr->getBotSpeakInterface()->speak(
+					"Hi! I'm @ProCxxLibBot! I can add the book"
+					" into the @ProCxxLib channel! Press start to begin!");
+			}
+		};
+		
+		class BotReadyState : public BotCommand {
+			BotStateManager *mgr; 
+		public:
+			BotReadyState(BotStateManager *mgr)
+			{
+				this->mgr = mgr;
+			}
+
+			void processInput(const std::string &s)
+			{
+				if (s.compare("start") == 0 ||
+				    s.compare("help")  == 0) {
+					mgr->getBotSpeakInterface()->speak(
+						"Hi again!"
+						"type /addbook to add the book into the channel!");
+				}
+				else if (s.compare("addbook") == 0) {
+					mgr->getBotSpeakInterface()->speak(
+							"Please, enter the name (/cancel to interrupt)");
+					mgr->setState(BotStateManager::WaitForInputBook);
+
+				} else if (s.compare("list") == 0) {
+					mgr->getBotContext()->listBooks();
+				}
+			}
+		};
+
+		class BotWaitForInputBookState : public BotCommand {
+			BotStateManager *mgr;
+			bool descr;
+			BotContext::BookEntry entry;
+		public:
+			BotWaitForInputBookState(BotStateManager *mgr)
+			{
+				descr = false;
+				this->mgr = mgr;
+			}
+
+			void processInput(const std::string &s)
+			{
+				if(s.compare("/cancel") == 0) {
+					mgr->getBotSpeakInterface()->speak(
+							"Cancelled! Type /help for help.");
+					mgr->setState(Ready);
+					return;
+				}
+				if (!descr) {
+					entry.name = s;
+					mgr->getBotSpeakInterface()->speak(
+							"Now enter description");
+				} else {
+					entry.desc = s;
+					mgr->getBotContext()->addBook(entry);
+					mgr->getBotSpeakInterface()->speak(
+							"Done! Now you can type /list"
+							" to show the books or /addbook to add another.");
+					mgr->setState(Ready);
+				}
+				descr = !descr;
+
+			}
+		};
+		
+		enum BotState {
+			Undefined,
+			Ready,
+			WaitForInputBook,
+		};
+		
+		BotStateManager(BotContext &ctx)
+		{
+			this->ctx = &ctx;
+			states[0] = std::make_shared<BotUndefinedState>(this);
+			states[1] = std::make_shared<BotReadyState>(this);
+			states[2] = std::make_shared<BotWaitForInputBookState>(this);
+			setState(Undefined);
+		}
+
+		BotContext *getBotContext()
+		{
+			return ctx;
+		}
+
+		BotSpeakControllerInterface *getBotSpeakInterface()
+		{
+			return ctx->getBotSpeakInterface();
+		}
+
+		void setState(BotState st) {
+			cur = states[st].get();
+		}
+		BotCommand *getState() {
+			return cur;
+		}
+		
+	};
+	BotStateManager mgr;
+public:
+
+	// ctor
+	BotContext(BotSpeakControllerInterface &iface,
+			const std::string &descript)
+		:mgr(*this)
+	{
+		ctrl = &iface;
+		description = descript;
+		// mgr = BotStateManager(*this);
+	}
+
+	bool exitIsRequested()
+	{
+		return requestExit;
+	}	
+
+	void getCommand() override
+	{
+		std::string s;
+		ctrl->getCommand(s);
+		parser.parse(s, this);
+	}
+
+	void command(const std::string &name) override
+	{
+		mgr.getState()->processInput(name);
+		return;
+		if (name.compare("start") == 0) {
+			ctrl->speak("Hi! I'm @ProCxxLibBot! I can add the book"
+					" into the @ProCxxLib channel!");
+		}
+		if (name.compare("addbook") == 0) {
+			ctrl->speak("Enter the book name:");
+			//ctrl->getCommand();
+		}
+	}
+
+	const std::string &getDescription() override
+	{
+		return description;
+	}
+
+	BotSpeakControllerInterface *getBotSpeakInterface()
+	{
+		return ctrl;
+	}
 };
 
 void test()
 {
-	Bot
+	BotSpeakStdoutController speak;
+	BotContext bot(speak, "This bot can add your book into the library.");
+	speak.speak(bot.getDescription());
+	while (bot.exitIsRequested() != true) {
+	
+		bot.getCommand();
+	}
+}
 
 int main(int argc, char *argv[])
 {
+	test();
+	return 0;
 	std::string cmd;
 	
 	cmd.reserve(40);
