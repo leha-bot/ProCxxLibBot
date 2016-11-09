@@ -328,7 +328,7 @@ public:
 	}
 };
 
-void test()
+int main(int argc, char *argv[])
 {
 	BotSpeakStdoutController speak;
 	BotContext bot(speak, "This bot can add your book into the library.");
@@ -337,21 +337,5 @@ void test()
 	
 		bot.getCommand();
 	}
-}
 
-int main(int argc, char *argv[])
-{
-	test();
-	return 0;
-	std::string cmd;
-	
-	cmd.reserve(40);
-	std::cout << "Enter your command: " << std::endl;
-	getline(std::cin, cmd);
-	std::cout << "Your command: " << cmd;
-	/*if (cmd.compare(COMMAND_ADDBOOK) == 0) {
-		std::cout << "Please, set the name of book: " << std::endl;
-		getline(std::cin, cmd);
-		std::cout << "Okay, the book name is: " << cmd << std::endl;
-	}*/
 }
