@@ -28,6 +28,7 @@ public:
 class BotCommandInterface {
 public:
 	virtual void command(const std::string &name) = 0;	
+	virtual void literalCommand(const std::string &liter) = 0;	
 	virtual const std::string &getDescription() = 0;
 	virtual void getCommand() = 0;
 };
@@ -48,6 +49,8 @@ public:
 	bool parse(const std::string &s,
 		BotCommandInterface *iface) override
 	{
+		std::cout << "\x1b[1;31mDEBUG: literal: " << s << "\x1b[0m" << std::endl;
+		iface->literalCommand(s);
 		return true; //s.compare(literal, literal.size();
 	}
 };
@@ -80,8 +83,6 @@ public:
 		}
 	}
 };
-
-const char *COMMAND_ADDBOOK = "/addbook";
 
 class BotCommand {
 	BotCommandInterface *iface;
@@ -122,11 +123,11 @@ private:
 
 	size_t listBooks()
 	{
-		size_t count = 1;
+		size_t count = 0;
 		std::stringstream ss;
 		ss << "All books list: " << std::endl;
 		for (auto &e : books) {
-			ss << count << ". " << e.name << ", description: " << e.desc << std::endl;
+			ss << ++count << ". " << e.name << ", description: " << e.desc << std::endl;
 		}
 		ss << "Total count: " << count;
 		ctrl->speak(ss.str());
@@ -140,7 +141,7 @@ private:
 
 	class BotCommand {
 	public:
-		virtual void processInput(const std::string &s) = 0;
+		virtual void processInput(const std::string &s, bool command = false) = 0;
 	};
 	
 	/// @brief Incapsulates all command switch states.
@@ -161,14 +162,15 @@ private:
 				this->mgr = mgr;
 			}
 
-			void processInput(const std::string &s) {
-				if (s.compare("start") != 0) {
+			void processInput(const std::string &s, bool command) {
+				if (s.compare("start") != 0 || !command) {
 					return;
 				}
 				mgr->setState(BotStateManager::Ready);
 				mgr->getBotSpeakInterface()->speak(
 					"Hi! I'm @ProCxxLibBot! I can add the book"
-					" into the @ProCxxLib channel! Press start to begin!");
+					" into the @ProCxxLib channel! Type /addbook to begin!"
+					"Type /help for help!");
 			}
 		};
 		
@@ -180,21 +182,28 @@ private:
 				this->mgr = mgr;
 			}
 
-			void processInput(const std::string &s)
+			void processInput(const std::string &s, bool command)
 			{
+				if (!command) {
+					return;
+				}
+
 				if (s.compare("start") == 0 ||
 				    s.compare("help")  == 0) {
 					mgr->getBotSpeakInterface()->speak(
 						"Hi again!"
-						"type /addbook to add the book into the channel!");
-				}
-				else if (s.compare("addbook") == 0) {
+						"Type /addbook to add the book into the channel!"
+						"Type /list to show all your books.");
+				} else if (s.compare("addbook") == 0) {
 					mgr->getBotSpeakInterface()->speak(
 							"Please, enter the name (/cancel to interrupt)");
 					mgr->setState(BotStateManager::WaitForInputBook);
 
 				} else if (s.compare("list") == 0) {
 					mgr->getBotContext()->listBooks();
+				} else if (s.compare("quit") == 0
+					|| s.compare("exit") == 0) {
+					mgr->getBotContext()->exit();
 				}
 			}
 		};
@@ -210,14 +219,19 @@ private:
 				this->mgr = mgr;
 			}
 
-			void processInput(const std::string &s)
+			void processInput(const std::string &s, bool command)
 			{
-				if(s.compare("/cancel") == 0) {
+				if(s.compare("cancel") == 0 && command) {
 					mgr->getBotSpeakInterface()->speak(
 							"Cancelled! Type /help for help.");
+					descr = false;
 					mgr->setState(Ready);
 					return;
 				}
+				
+				if (command)
+					return;
+
 				if (!descr) {
 					entry.name = s;
 					mgr->getBotSpeakInterface()->speak(
@@ -295,16 +309,12 @@ public:
 
 	void command(const std::string &name) override
 	{
-		mgr.getState()->processInput(name);
-		return;
-		if (name.compare("start") == 0) {
-			ctrl->speak("Hi! I'm @ProCxxLibBot! I can add the book"
-					" into the @ProCxxLib channel!");
-		}
-		if (name.compare("addbook") == 0) {
-			ctrl->speak("Enter the book name:");
-			//ctrl->getCommand();
-		}
+		mgr.getState()->processInput(name, true);
+	}
+
+	void literalCommand(const std::string &liter) override
+	{
+		mgr.getState()->processInput(liter, 0);
 	}
 
 	const std::string &getDescription() override
@@ -339,9 +349,9 @@ int main(int argc, char *argv[])
 	std::cout << "Enter your command: " << std::endl;
 	getline(std::cin, cmd);
 	std::cout << "Your command: " << cmd;
-	if (cmd.compare(COMMAND_ADDBOOK) == 0) {
+	/*if (cmd.compare(COMMAND_ADDBOOK) == 0) {
 		std::cout << "Please, set the name of book: " << std::endl;
 		getline(std::cin, cmd);
 		std::cout << "Okay, the book name is: " << cmd << std::endl;
-	}
+	}*/
 }
