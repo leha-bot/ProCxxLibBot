@@ -5,13 +5,7 @@
 #include <initializer_list>
 #include <memory>
 #include <sstream>
-
-class BotSpeakControllerInterface {
-	///
-public:
-	virtual void speak(const std::string &s) = 0; // ответ бота
-	virtual void getCommand(std::string &s) = 0; // ввод команды
-};
+#include "BotSpeakControllerInterface.h"
 
 class BotSpeakStdoutController : public BotSpeakControllerInterface {
 public:
@@ -84,23 +78,8 @@ public:
 	}
 };
 
-class BotCommand {
-	BotCommandInterface *iface;
-	std::string name;
-public:
-	BotCommand(BotCommandInterface *iface, const std::string &nam)
-	{
-		this->name = nam;
-		this->iface = iface;
-	}
-
-
-};
-
 // bot states
-// waitcmd <->waitname<->waitlang
-//   ^ v
-// waitlangvoid
+// waitcmd <->waitname
 class BotContext : public BotCommandInterface {
 	BotSpeakControllerInterface *ctrl;
 	ExpressionCommand parser;
@@ -169,7 +148,7 @@ private:
 				mgr->setState(BotStateManager::Ready);
 				mgr->getBotSpeakInterface()->speak(
 					"Hi! I'm @ProCxxLibBot! I can add the book"
-					" into the @ProCxxLib channel! Type /addbook to begin!"
+					" into the @ProCxxLib channel!\nType /addbook to begin!\n"
 					"Type /help for help!");
 			}
 		};
@@ -192,7 +171,7 @@ private:
 				    s.compare("help")  == 0) {
 					mgr->getBotSpeakInterface()->speak(
 						"Hi again!"
-						"Type /addbook to add the book into the channel!"
+						"Type /addbook to add the book into the channel!\n"
 						"Type /list to show all your books.");
 				} else if (s.compare("addbook") == 0) {
 					mgr->getBotSpeakInterface()->speak(
@@ -274,10 +253,13 @@ private:
 			return ctx->getBotSpeakInterface();
 		}
 
-		void setState(BotState st) {
+		void setState(BotState st)
+		{
 			cur = states[st].get();
 		}
-		BotCommand *getState() {
+
+		BotCommand *getState()
+		{
 			return cur;
 		}
 		
@@ -334,7 +316,6 @@ int main(int argc, char *argv[])
 	BotContext bot(speak, "This bot can add your book into the library.");
 	speak.speak(bot.getDescription());
 	while (bot.exitIsRequested() != true) {
-	
 		bot.getCommand();
 	}
 
